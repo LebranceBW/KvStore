@@ -13,4 +13,5 @@ predicates = "1.0.0"
 test = false
 [dependencies]
 clap = "2.33.3"
+structopt = "0.3.21"
 
