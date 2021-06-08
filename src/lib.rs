@@ -3,4 +3,5 @@
 
 mod kvstore;
 
+pub use anyhow::Result;
 pub use kvstore::KvStore;
