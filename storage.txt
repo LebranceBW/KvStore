@@ -1,3 +1,0 @@
-{"Insertion":{"key":"key1","value":"value2"}}
-{"Insertion":{"key":"key2","value":"value1"}}
-{"Discard":{"key":"key1"}}

@@ -1,6 +1,3 @@
-
-
-
 use anyhow::Result;
 use structopt::*;
 
@@ -35,23 +32,24 @@ enum ArgParser {
 fn main() -> Result<()> {
     let matches = ArgParser::from_args();
     match matches {
-        ArgParser::set { key, value } => KvStore::open("./")?.set(key, value),
+        ArgParser::set { key, value } => KvStore::open("./")?.set(&key, &value),
         ArgParser::get { key } => {
             let logged = key.clone();
-            let value = KvStore::open("./")?.get(key)?;
+            let value = KvStore::open("./")?.get(&key)?;
             match &value {
                 Some(val) => println!("{}", val),
                 None => println!("Key: {} not found", logged),
             };
             Ok(())
         }
-        ArgParser::rm { key } => KvStore::open("./")?.remove(key),
+        ArgParser::rm { key } => KvStore::open("./")?.remove(&key),
         ArgParser::list => {
-            KvStore::open("./")?
-                .list()?
-                .iter()
-                .for_each(|(key, value)| println!("{}: {}", key, value));
-            Ok(())
+            todo!()
+            // KvStore::open("./")?
+            //     .list()?
+            //     .iter()
+            //     .for_each(|(key, value)| println!("{}: {}", key, value));
+            // Ok(())
         }
     }
 }
