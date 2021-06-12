@@ -12,12 +12,12 @@ use anyhow::Context;
 use serde::Deserialize;
 use serde::Serialize;
 
+use crate::engine::Engine;
 use crate::Result;
 
 const STORAGE_FILE_A: &str = "storage_A.db";
 const STORAGE_FILE_B: &str = "storage_B.db";
 const CONFIG_FILE_PATH: &str = "config.json";
-
 
 #[derive(Serialize, Deserialize, Debug)]
 enum Command {
@@ -34,9 +34,12 @@ type CommandIndex = u64;
 ///  Example:
 /// ```rust
 ///# use kvs::KvStore;
-///let mut store = KvStore::new();
+///# use crate::kvs::Engine;
+///# extern crate tempfile;
+///let temp_dir = tempfile::TempDir::new().unwrap();
+///let mut store = KvStore::open(temp_dir.path()).unwrap();
 ///store.set("key1", "value1");
-///assert_eq!(store.get("key1"), Some("value1"));
+///assert_eq!(store.get("key1").unwrap(), Some("value1".to_string()));
 /// ```
 #[derive(Debug)]
 pub struct KvStore {
@@ -65,31 +68,22 @@ impl KvStore {
         let path_buf = pathinfo.into();
         let config_file_path = Self::get_path(&path_buf, CONFIG_FILE_PATH);
         let (current_file_name, num_logs) = {
-            let config: KvStoreConfig =
-                File::open(&config_file_path)
-                    .context("Failed to open json configuration file.")
-                    .and_then(
-                        |fp|
-                            serde_json::from_reader(&fp)
-                                .context("Invalid file content")
-                    ).unwrap_or(
-                    KvStoreConfig {
-                        current_file: STORAGE_FILE_A.to_string(),
-                        log_num: 0,
-                    }
-                );
+            let config: KvStoreConfig = File::open(&config_file_path)
+                .context("Failed to open json configuration file.")
+                .and_then(|fp| serde_json::from_reader(&fp).context("Invalid file content"))
+                .unwrap_or(KvStoreConfig {
+                    current_file: STORAGE_FILE_A.to_string(),
+                    log_num: 0,
+                });
             (config.current_file, config.log_num)
         };
         let mut file = fs::OpenOptions::new()
             .create(true)
             .write(true)
             .read(true)
-            .open(
-                Self::get_path(&path_buf, &current_file_name)
-            )
+            .open(Self::get_path(&path_buf, &current_file_name))
             .with_context(|| format!("Unable to open file at {:?}", path_buf.as_path()))?;
-        let mem_map = Self::replay(&mut file).
-            context("Failed when replay log.")?;
+        let mem_map = Self::replay(&mut file).context("Failed when replay log.")?;
         Ok(Self {
             data_dir: path_buf,
             fp: file,
@@ -142,40 +136,6 @@ impl KvStore {
             .with_context(|| "Error to get line.")?;
         Ok(((serde_json::from_str::<Command>(json.trim())?), json))
     }
-    /// Get the value by key.
-    pub fn get(&mut self, key: &str) -> Result<Option<String>> {
-        let idx = self.mem_map.get(key);
-        if idx.is_none() {
-            return Ok(None);
-        }
-        let (deserialized, json) =
-            Self::query_command_index(idx.unwrap(), &mut self.fp)?;
-        if let Command::Insertion {
-            key: ikey,
-            value: ivalue,
-        } = deserialized
-        {
-            if ikey != key {
-                bail!("Mismatched command key. {}", json);
-            } else {
-                Ok(Some(ivalue))
-            }
-        } else {
-            bail!("Invalid command: {}", json)
-        }
-    }
-    /// Set the value belonging to the provided key.
-    pub fn set(&mut self, key: &str, value: &str) -> Result<()> {
-        let idx = self.append_command(&Command::Insertion {
-            key: key.to_string(),
-            value: value.to_string(),
-        })?;
-        self.mem_map.insert(key.to_string(), idx);
-        if self.log_num > (2 * self.mem_map.len()) as u64 {
-            self.compaction()?;
-        }
-        Ok(())
-    }
 
     fn append_command(&mut self, command: &Command) -> Result<CommandIndex> {
         self.fp.seek(SeekFrom::End(0))?;
@@ -192,16 +152,6 @@ impl KvStore {
         })?;
         self.log_num += 1;
         idx
-    }
-    /// Remove an key whether it exists or not.
-    pub fn remove(&mut self, key: &str) -> Result<()> {
-        self.mem_map = Self::replay(&mut self.fp)?;
-        match self.mem_map.remove(key) {
-            Some(_) => self
-                .append_command(&Command::Discard { key: key.to_string() })
-                .map(|_| ()),
-            None => Err(anyhow!("Key: {} not found.", key)),
-        }
     }
 
     /// list all values.
@@ -224,7 +174,12 @@ impl KvStore {
             .write(true)
             .read(true)
             .open(&pathbuf)
-            .with_context(|| format!("Failed when creating temporary file for compaction. {:?}", pathbuf.as_path()))?;
+            .with_context(|| {
+                format!(
+                    "Failed when creating temporary file for compaction. {:?}",
+                    pathbuf.as_path()
+                )
+            })?;
         let mem_map = Self::replay(&mut self.fp)?;
         let mut num = 0u64;
         for (key, _) in mem_map.into_iter() {
@@ -251,56 +206,73 @@ impl KvStore {
             .write(true)
             .truncate(true)
             .open(&self.config_file_path)?;
-        let serialized = serde_json::to_string(
-            &KvStoreConfig {
-                current_file: self.current_file.clone(),
-                log_num: self.log_num,
-            },
-        )?;
-        config_fp.write_all(serialized.as_ref())
+        let serialized = serde_json::to_string(&KvStoreConfig {
+            current_file: self.current_file.clone(),
+            log_num: self.log_num,
+        })?;
+        config_fp
+            .write_all(serialized.as_ref())
             .context("Error to sync config to config file.")
     }
 }
 
 impl Drop for KvStore {
     fn drop(&mut self) {
+        self.flush().unwrap();
         self.sync_config().unwrap()
     }
 }
 
-#[cfg(test)]
-mod test {
-    use anyhow::Result;
-    use assert_cmd::prelude::*;
-    use predicates::prelude::*;
-    use tempfile::TempDir;
-
-    use super::*;
-
-    #[test]
-    fn config_test() -> Result<()> {
-        // let temp_dir = TempDir::new().expect("unable to create temporary working directory");
-        let mut store = KvStore::open("./")?;
-        // let mut store = KvStore::open(temp_dir.path())?;
-        store.set("key1", "value1");
-        store.set("key1", "value1");
-        store.set("key1", "value1");
-        store.set("key1", "value1");
-        store.set("key1", "value1");
-        store.set("key1", "value1");
-        Ok(assert_eq!(store.log_num, 6))
+impl Engine for KvStore {
+    /// Get the value by key.
+    fn get(&mut self, key: &str) -> Result<Option<String>> {
+        let idx = self.mem_map.get(key);
+        if idx.is_none() {
+            return Ok(None);
+        }
+        let (deserialized, json) = Self::query_command_index(idx.unwrap(), &mut self.fp)?;
+        if let Command::Insertion {
+            key: ikey,
+            value: ivalue,
+        } = deserialized
+        {
+            if ikey != key {
+                bail!("Mismatched command key. {}", json);
+            } else {
+                Ok(Some(ivalue))
+            }
+        } else {
+            bail!("Invalid command: {}", json)
+        }
     }
 
-    #[test]
-    fn config_test2() {
-        let temp_dir = TempDir::new().expect("unable to create temporary working directory");
-        for _ in 0..3 {
-            std::process::Command::cargo_bin("kvs")
-                .unwrap()
-                .args(&["set", "key1", "value1"])
-                .current_dir(&temp_dir)
-                .assert()
-                .success();
+    /// Set the value belonging to the provided key.
+    fn set(&mut self, key: &str, value: &str) -> Result<()> {
+        let idx = self.append_command(&Command::Insertion {
+            key: key.to_string(),
+            value: value.to_string(),
+        })?;
+        self.mem_map.insert(key.to_string(), idx);
+        if self.log_num > (2 * self.mem_map.len()) as u64 {
+            self.compaction()?;
         }
+        Ok(())
+    }
+
+    /// Remove an key whether it exists or not.
+    fn remove(&mut self, key: &str) -> Result<()> {
+        self.mem_map = Self::replay(&mut self.fp)?;
+        match self.mem_map.remove(key) {
+            Some(_) => self
+                .append_command(&Command::Discard {
+                    key: key.to_string(),
+                })
+                .map(|_| ()),
+            None => Err(anyhow!("Key: {} not found.", key)),
+        }
+    }
+
+    fn flush(&mut self) -> Result<()> {
+        Ok(self.fp.flush()?)
     }
 }
