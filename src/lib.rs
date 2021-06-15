@@ -182,7 +182,6 @@ mod test {
         let val2 = client.send_instruction(Instruction::Rm {
             key: "key2".to_string(),
         });
-        // let ins = serde_json::from_str::<Instruction>(&val)?;
         assert_eq!(val, "value1".to_string());
         assert!(val2.is_ok());
     }
