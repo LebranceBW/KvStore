@@ -4,14 +4,17 @@ use anyhow::bail;
 use anyhow::Context;
 use sled::{Db, IVec};
 
-use crate::Engine;
+use crate::KvsEngine;
 use crate::Result;
 
+#[derive(Clone)]
+/// Adapter for sled engine.
 pub struct SledAdapter {
     db: Db,
 }
 
 impl SledAdapter {
+    /// create
     pub fn open(path: impl Into<PathBuf>) -> Result<Self> {
         Ok(Self {
             db: sled::open(path.into())?,
@@ -27,15 +30,15 @@ impl SledAdapter {
     }
 }
 
-impl Engine for SledAdapter {
-    fn get(&mut self, key: &str) -> Result<Option<String>> {
+impl KvsEngine for SledAdapter {
+    fn get(&self, key: &str) -> Result<Option<String>> {
         self.db
             .get(Self::ivec_from_str(key))
             .map(|x| x.map(Self::ivec_to_str))
             .context("Failed to get value.")
     }
 
-    fn set(&mut self, key: &str, value: &str) -> Result<()> {
+    fn set(&self, key: &str, value: &str) -> Result<()> {
         let (ikey, ivalue) = (Self::ivec_from_str(key), Self::ivec_from_str(value));
         self.db.insert(ikey, ivalue).map(|_| ()).with_context(|| {
             format!(
@@ -45,14 +48,14 @@ impl Engine for SledAdapter {
         })
     }
 
-    fn remove(&mut self, key: &str) -> Result<()> {
+    fn remove(&self, key: &str) -> Result<()> {
         match self.db.remove(Self::ivec_from_str(key))? {
             Some(_) => Ok(()),
             None => bail!("Key: {} not found.", key),
         }
     }
 
-    fn flush(&mut self) -> Result<()> {
+    fn flush(&self) -> Result<()> {
         self.db.flush().map(|_| ()).context("Flush to disk.")
     }
 }

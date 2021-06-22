@@ -1,34 +1,47 @@
-use std::path::PathBuf;
-
 use anyhow::Result;
-use mockall::automock;
 
-use crate::EngineType;
-use crate::kvstore::KvStore;
-use crate::sled::SledAdapter;
+use mockall::mock;
+
+
+
+
 
 /// Trait which Key-Value storage engine should obey.
-#[automock]
-pub trait Engine {
+pub trait KvsEngine: Clone + Send + 'static {
     /// Get value bind by key.
-    fn get(&mut self, key: &str) -> Result<Option<String>>;
+    fn get(&self, key: &str) -> Result<Option<String>>;
     /// Insert a key-value pair.
-    fn set(&mut self, key: &str, value: &str) -> Result<()>;
+    fn set(&self, key: &str, value: &str) -> Result<()>;
     /// Remove an existing key-value pair or report error.
-    fn remove(&mut self, key: &str) -> Result<()>;
+    fn remove(&self, key: &str) -> Result<()>;
     /// Flush all In-mem data into the hard device.
-    fn flush(&mut self) -> Result<()> {
+    fn flush(&self) -> Result<()> {
         Ok(())
     }
 }
 
-/// Return an anonymous backend engine by EngineType Enum at specific directory.
-pub fn switch_engine<T: Into<PathBuf>>(t: EngineType, path: T) -> Result<Box<dyn Engine>> {
-    match t {
-        EngineType::Kvs => KvStore::open(path).map(|x| Box::new(x) as Box<dyn Engine>),
-        EngineType::Mock => Ok(Box::new(MockEngine::new()) as Box<dyn Engine>),
-        EngineType::Sled => {
-            Box::new(SledAdapter::open(path)).map(|x| Box::new(x) as Box<dyn Engine>)
-        }
+pub struct MockKvsEngine;
+
+mock! {
+    pub MockKvsEngine {
+        fn new() -> Self;
+    }
+    impl Clone for MockKvsEngine {
+        fn clone(&self) -> Self;
+    }
+    impl KvsEngine for MockKvsEngine {
+        fn get(&self, key: &str) -> Result<Option<String>>;
+        fn set(&self, key: &str, value: &str) -> Result<()>;
+        fn remove(&self, key: &str) -> Result<()>;
     }
 }
+// Return an anonymous backend engine by EngineType Enum at specific directory.
+// pub fn switch_engine<T: Into<PathBuf>>(t: EngineType, path: T) -> Result<Box<dyn KvsEngine>> {
+//     match t {
+//         EngineType::Kvs => KvStore::open(path).map(|x| Box::new(x) as Box<dyn KvsEngine>),
+//         EngineType::Mock => Ok(Box::new(MockKvsEngine::new()) as Box<dyn KvsEngine>),
+//         EngineType::Sled => {
+//             Box::new(SledAdapter::open(path)).map(|x| Box::new(x) as Box<dyn KvsEngine>)
+//         }
+//     }
+// }

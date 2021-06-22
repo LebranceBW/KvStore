@@ -42,20 +42,12 @@ fn main() {
             key,
             value,
             address,
-        } => {
-            KvClient::connect(address)
-                .and_then(|mut client|
-                    client.set(key, value))
-        }
+        } => KvClient::connect(address).and_then(|mut client| client.set(key, value)),
         ArgParser::get { key, address } => {
-            KvClient::connect(address)
-                .and_then(|mut client|
-                    client.get(key))
+            KvClient::connect(address).and_then(|mut client| client.get(key))
         }
         ArgParser::rm { key, address } => {
-            KvClient::connect(address)
-                .and_then(|mut client|
-                    client.remove(key))
+            KvClient::connect(address).and_then(|mut client| client.remove(key))
         }
     };
     match reply {

@@ -1,88 +1,40 @@
-use std::fs::OpenOptions;
-use std::io::{BufRead, BufReader, LineWriter, Read, Write};
-use std::net::{TcpListener, ToSocketAddrs};
-use std::net::SocketAddrV4;
-use std::str::FromStr;
 
-use anyhow::bail;
+use std::io::{BufRead, BufReader, LineWriter, Write};
+
+use std::net::{TcpListener, ToSocketAddrs};
+
+
+
 use anyhow::Result;
 use log::*;
 use serde_json;
-use structopt::*;
 
-use crate::{Engine, EngineType, Response, switch_engine};
+
+use crate::{KvsEngine, Response};
 
 use super::Instruction;
 
-/// KVServer configuration.
-#[derive(Debug, StructOpt)]
-#[structopt(name = "kvs-server", version = env ! ("CARGO_PKG_VERSION"))]
-pub struct ServerConfig {
-    #[structopt(short = "a", long = "addr", default_value = "127.0.0.1:4000")]
-    pub(crate) address: SocketAddrV4,
-    #[structopt(short = "t", long = "engine", default_value = "kvs")]
-    pub(crate) engine_type: EngineType,
-}
-
 /// KvServer, accept instructions from kvclient and process by kv engine.
-pub struct KvServer {
+pub struct KvServer<T: KvsEngine> {
     pub(crate) server: CommandServer,
-    pub(crate) engine: Box<dyn Engine>,
+    pub(crate) engine: T,
 }
 
-const DATA_DIR: &'static str = "./";
-const LOCK_FILE: &'static str = ".engine_lock";
+// const DATA_DIR: &'static str = "./";
+// const LOCK_FILE: &'static str = ".engine_lock";
 
-impl KvServer {
+impl<T: KvsEngine> KvServer<T> {
     /// Construct a new instance through ServerConfig.
-    pub fn new(config: ServerConfig) -> Result<KvServer> {
-        let mut lock_fp = OpenOptions::new()
-            .create(true)
-            .read(true)
-            .write(true)
-            .open(format!("{}{}", DATA_DIR, LOCK_FILE));
-        let prev_engine = match &mut lock_fp {
-            Ok(fp) => {
-                let mut buf = String::new();
-                fp.read_to_string(&mut buf)?;
-                EngineType::from_str(&buf).ok()
-            }
-            _ => None,
-        };
-        match prev_engine {
-            Some(prev) => {
-                info!("Retrieving last work. engine: {}", prev);
-                if prev != config.engine_type {
-                    error!(
-                        "Mismatched engine type!, previous engine: {}, new engine: {}",
-                        prev, config.engine_type
-                    );
-                    bail!(
-                        "Mismatched engine type!, previous engine: {}, new engine: {}",
-                        prev,
-                        config.engine_type
-                    )
-                }
-            }
-            None => {
-                write!(lock_fp?, "{}", String::from(config.engine_type))?;
-            }
-        }
-        info!(
-            "Listened at {}, powered by {}, version: {}",
-            config.address,
-            config.engine_type,
-            env!("CARGO_PKG_VERSION")
-        );
+    pub fn new(engine: T, address: impl ToSocketAddrs) -> Result<Self> {
         Ok(KvServer {
-            server: CommandServer::bind(config.address)?,
-            engine: switch_engine(config.engine_type, DATA_DIR)?,
+            server: CommandServer::bind(address)?,
+            engine,
         })
     }
 
     /// Start  receiving instructions from client continuesly..
     pub fn run(self) -> ! {
-        let KvServer { server, mut engine } = self;
+        let KvServer { server, engine } = self;
         server.run(move |ins| {
             Response::from({
                 debug!("command: {:?}", ins);
@@ -114,8 +66,8 @@ impl<'a> CommandServer {
     }
 
     pub fn run<T>(&self, mut op: T) -> !
-        where
-            T: FnMut(Instruction) -> Response,
+    where
+        T: FnMut(Instruction) -> Response,
     {
         loop {
             let (stream, client_addr) = self.server.accept().unwrap();

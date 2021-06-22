@@ -7,17 +7,18 @@ use std::str::FromStr;
 pub use anyhow::{bail, Result};
 use serde::{Deserialize, Serialize};
 
+pub use crate::sled::SledAdapter;
 pub use client::KvClient;
-pub use engine::{switch_engine, Engine};
+pub use engine::KvsEngine;
 pub use kvstore::KvStore;
 pub use server::KvServer;
-pub use server::ServerConfig;
 
 mod client;
 mod engine;
 mod kvstore;
 mod server;
 mod sled;
+pub mod thread_pool;
 
 /// Backend EngineType
 #[derive(Debug, PartialEq, Clone, Copy)]
@@ -110,7 +111,7 @@ mod test {
     use simple_logger::SimpleLogger;
 
     use crate::client::CommandClient;
-    use crate::engine::MockEngine;
+    use crate::engine::MockKvsEngine;
     use crate::server::CommandServer;
 
     use super::Response;
@@ -157,7 +158,7 @@ mod test {
     #[test]
     fn mock_test() {
         let _server_thread = thread::spawn(move || {
-            let mut mocked_engine = Box::new(MockEngine::new());
+            let mut mocked_engine = MockKvsEngine {};
             mocked_engine
                 .expect_get()
                 .with(eq("key1"))
@@ -167,10 +168,7 @@ mod test {
                 .expect_remove()
                 .with(eq("key2"))
                 .return_once(|_| Ok(()));
-            let server = KvServer {
-                server: CommandServer::bind("localhost:9999").unwrap(),
-                engine: mocked_engine,
-            };
+            let server = KvServer::new(mocked_engine, "localhost:9999").unwrap();
             server.run()
         });
         let mut client = CommandClient::connect("localhost:9999").unwrap();

@@ -46,27 +46,15 @@ impl KvClient {
 
     /// Get the value by provided key.
     pub fn get(&mut self, key: String) -> Result<String> {
-        self.client.send_instruction(
-            Instruction::Get {
-                key
-            }
-        )
+        self.client.send_instruction(Instruction::Get { key })
     }
     /// Insert a key-value pair.
     pub fn set(&mut self, key: String, value: String) -> Result<String> {
-        self.client.send_instruction(
-            Instruction::Set {
-                key,
-                value,
-            }
-        )
+        self.client
+            .send_instruction(Instruction::Set { key, value })
     }
     /// Remove an existing key-value pair or report error.
     pub fn remove(&mut self, key: String) -> Result<String> {
-        self.client.send_instruction(
-            Instruction::Rm {
-                key,
-            }
-        )
+        self.client.send_instruction(Instruction::Rm { key })
     }
 }
