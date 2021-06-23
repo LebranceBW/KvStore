@@ -2,10 +2,6 @@ use anyhow::Result;
 
 use mockall::mock;
 
-
-
-
-
 /// Trait which Key-Value storage engine should obey.
 pub trait KvsEngine: Clone + Send + 'static {
     /// Get value bind by key.

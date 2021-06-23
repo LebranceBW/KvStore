@@ -9,7 +9,7 @@ use log::*;
 use simple_logger::SimpleLogger;
 use structopt::*;
 
-
+use kvs::thread_pool::{NaiveThreadPool, ThreadPool};
 use kvs::{EngineType, KvServer, KvStore, KvsEngine, SledAdapter};
 
 const ENGINE_MARK_FILE: &'static str = ".engine_mark";
@@ -67,7 +67,7 @@ fn main() {
 }
 
 fn run_with<T: KvsEngine>(engine: T, address: impl ToSocketAddrs) {
-    let server = KvServer::new(engine, address).unwrap();
+    let server = KvServer::new(engine, NaiveThreadPool::new(32).unwrap(), address).unwrap();
     server.run()
 }
 

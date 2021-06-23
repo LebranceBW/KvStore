@@ -1,8 +1,8 @@
 use std::collections::HashMap;
 use std::fs;
 use std::fs::File;
-use std::io::{BufReader, SeekFrom};
 use std::io::prelude::*;
+use std::io::{BufReader, SeekFrom};
 use std::mem::swap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -309,7 +309,7 @@ impl KvsEngine for KvStore {
                         key: key.to_string(),
                     },
                 )
-                    .map(|_| ());
+                .map(|_| ());
                 yolk.log_num += 1;
                 result
             }

@@ -13,12 +13,12 @@ pub trait SharedQueueThreadPool {}
 pub trait ThreadPool {
     /// Crate a new instance.
     fn new(threads: u32) -> Result<Self>
-    where
-        Self: Sized;
+        where
+            Self: Sized;
     /// Create a new thread.
     fn spawn<F>(&self, job: F)
-    where
-        F: FnOnce() + Send + 'static;
+        where
+            F: FnOnce() + Send + 'static;
 }
 
 /// A naive implemention of thread poll.
@@ -30,20 +30,10 @@ impl ThreadPool for NaiveThreadPool {
     }
 
     fn spawn<F>(&self, job: F)
-    where
-        F: FnOnce() + Send + 'static,
+        where
+            F: FnOnce() + Send + 'static,
     {
         thread::spawn(job);
     }
 }
-// impl NaiveThreadPool {
-//     /// Crate a new instance.
-//     pub fn new(thread_num: usize) -> NaiveThreadPool {
-//         todo!()
-//     }
-//
-//     /// Create a new thread.
-//     pub fn spawn<F: FnOnce() + Send + 'static>(self, fnc: F) {
-//         thread::spawn(fnc);
-//     }
-// }
+
