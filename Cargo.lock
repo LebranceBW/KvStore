@@ -54,12 +54,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cdb031dd78e28731d87d56cc8ffef4a8f36ca26c38fe2de700543e627f8a464a"
 
 [[package]]
-name = "bencher"
-version = "0.1.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7dfdb4953a096c551ce9ace855a604d702e6e62d77fac690575ae347571717f5"
-
-[[package]]
 name = "bitflags"
 version = "1.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -423,25 +417,26 @@ dependencies = [
 name = "kvs"
 version = "0.1.0"
 dependencies = [
- "anyhow",
- "assert_cmd",
- "bencher",
- "criterion",
- "crossbeam",
- "crossbeam-utils",
- "lazy_static",
- "log",
- "mockall",
- "panic-control",
- "predicates",
- "rand",
- "serde",
- "serde_json",
- "simple_logger",
- "sled",
- "structopt",
- "tempfile",
- "walkdir",
+    "anyhow",
+    "assert_cmd",
+    "criterion",
+    "crossbeam",
+    "crossbeam-utils",
+    "lazy_static",
+    "log",
+    "mockall",
+    "num_cpus",
+    "panic-control",
+    "predicates",
+    "rand",
+    "rayon",
+    "serde",
+    "serde_json",
+    "simple_logger",
+    "sled",
+    "structopt",
+    "tempfile",
+    "walkdir",
 ]
 
 [[package]]

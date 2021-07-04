@@ -1,13 +1,12 @@
 //!
 pub use naive_pool::NaiveThreadPool;
+pub use rayon_pool::RayonAdapterPool as RayonThreadPool;
 pub use shared_pool::SharedQueueThreadPool;
 
 mod naive_pool;
 mod shared_pool;
+mod rayon_pool;
 
-
-/// empty struct
-pub struct RayonThreadPool;
 
 /// Common trait defined for thread pool.
 pub trait ThreadPool {
