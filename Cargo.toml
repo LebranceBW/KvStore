@@ -24,6 +24,7 @@ test = false
 [dependencies]
 anyhow = "1.0.40"
 crossbeam = "0.8.1"
+lockfree = "0.5.1"
 log = "0.4.14"
 mockall = "0.9.1"
 rayon = "1.5.1"

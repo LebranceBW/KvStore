@@ -1,10 +1,10 @@
-use std::thread::{Builder, JoinHandle};
 use std::thread;
+use std::thread::{Builder, JoinHandle};
 
 use anyhow::Result;
+use crossbeam::channel::unbounded;
 use crossbeam::channel::Receiver;
 use crossbeam::channel::Sender;
-use crossbeam::channel::unbounded;
 use log::error;
 use log::warn;
 
@@ -22,17 +22,12 @@ struct WorkerGuard(Receiver<TaskMessage>);
 impl Drop for WorkerGuard {
     fn drop(&mut self) {
         if thread::panicking() {
-            let name = thread::current()
-                .name()
-                .unwrap()
-                .to_string();
+            let name = thread::current().name().unwrap().to_string();
             warn!("Thread: {} panics, start a reliever.", name);
             let rx = self.0.clone();
             Builder::new()
                 .name(name)
-                .spawn(move || thread_main_loop(
-                    WorkerGuard(rx)
-                ))
+                .spawn(move || thread_main_loop(WorkerGuard(rx)))
                 .unwrap();
         }
     }
@@ -57,50 +52,48 @@ impl Drop for SharedQueueThreadPool {
     }
 }
 
-
 fn thread_main_loop(guard: WorkerGuard) {
     while let Ok(message) = guard.0.recv() {
         match message {
             TaskMessage::NewTask(task) => task(),
-            TaskMessage::Shutdown => return
+            TaskMessage::Shutdown => return,
         }
     }
 
-    error!("Thread: {} exists because channel is broken.", thread::current()
-        .name()
-        .unwrap_or("Unknown"));
+    error!(
+        "Thread: {} exists because channel is broken.",
+        thread::current().name().unwrap_or("Unknown")
+    );
 }
 
 impl ThreadPool for SharedQueueThreadPool {
-    fn new(threads: u32) -> Result<Self> where
-        Self: Sized {
+    fn new(threads: u32) -> Result<Self>
+    where
+        Self: Sized,
+    {
         let (tx, rx) = unbounded();
-        let thread_handler: Vec<_> =
-            (0..threads)
-                .map(|idx| {
-                    let rx = rx.clone();
-                    Builder::new()
-                        .name(
-                            format!("SharedQueueThreadPool-thread: {}", idx + 1)
-                        )
-                        .spawn(move || thread_main_loop(WorkerGuard(rx)))
-                })
-                .collect::<Result<Vec<_>, _>>()
-                .expect("Failed to spawn the working threads in thread pool");
+        let thread_handler: Vec<_> = (0..threads)
+            .map(|idx| {
+                let rx = rx.clone();
+                Builder::new()
+                    .name(format!("SharedQueueThreadPool-thread: {}", idx + 1))
+                    .spawn(move || thread_main_loop(WorkerGuard(rx)))
+            })
+            .collect::<Result<Vec<_>, _>>()
+            .expect("Failed to spawn the working threads in thread pool");
         Ok(Self {
             tx,
             threads: thread_handler,
         })
     }
 
-    fn spawn<F>(&self, job: F) where
-        F: FnOnce() + Send + 'static {
-        match self.tx.send(
-            TaskMessage::NewTask(Box::new(job))
-        ) {
+    fn spawn<F>(&self, job: F)
+    where
+        F: FnOnce() + Send + 'static,
+    {
+        match self.tx.send(TaskMessage::NewTask(Box::new(job))) {
             Ok(_) => (),
-            Err(e) =>
-                panic!("{:}", e.to_string())
+            Err(e) => panic!("{:}", e.to_string()),
         }
     }
 }
@@ -117,11 +110,9 @@ mod test {
         let (tx, rx) = channel::unbounded::<String>();
         for i in 0..4 {
             let rx = rx.clone();
-            thread::spawn(move ||
-                loop {
-                    sleep(Duration::from_millis(200))
-                }
-            );
+            thread::spawn(move || loop {
+                sleep(Duration::from_millis(200))
+            });
         }
         drop(rx);
         tx.send("1".to_owned()).unwrap();

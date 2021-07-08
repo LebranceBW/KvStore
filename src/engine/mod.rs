@@ -1,3 +1,5 @@
+mod kvstore;
+
 use anyhow::Result;
 
 use mockall::mock;
@@ -31,13 +33,3 @@ mock! {
         fn remove(&self, key: &str) -> Result<()>;
     }
 }
-// Return an anonymous backend engine by EngineType Enum at specific directory.
-// pub fn switch_engine<T: Into<PathBuf>>(t: EngineType, path: T) -> Result<Box<dyn KvsEngine>> {
-//     match t {
-//         EngineType::Kvs => KvStore::open(path).map(|x| Box::new(x) as Box<dyn KvsEngine>),
-//         EngineType::Mock => Ok(Box::new(MockKvsEngine::new()) as Box<dyn KvsEngine>),
-//         EngineType::Sled => {
-//             Box::new(SledAdapter::open(path)).map(|x| Box::new(x) as Box<dyn KvsEngine>)
-//         }
-//     }
-// }

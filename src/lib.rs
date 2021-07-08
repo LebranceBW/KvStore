@@ -103,7 +103,7 @@ impl From<Response> for Result<String, String> {
 }
 //
 // #[cfg(test)]
-// mod test {
+// kvstore test {
 //     use std::thread;
 //
 //     use anyhow::{Context, Result};

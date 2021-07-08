@@ -5,7 +5,7 @@ use std::io::prelude::*;
 use std::io::{BufReader, SeekFrom};
 use std::mem::swap;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, RwLock};
 
 use anyhow::anyhow;
 use anyhow::bail;
@@ -13,8 +13,7 @@ use anyhow::Context;
 use serde::Deserialize;
 use serde::Serialize;
 
-use crate::engine::KvsEngine;
-use crate::Result;
+use crate::{KvsEngine, Result};
 
 const STORAGE_FILE_A: &str = "storage_A.db";
 const STORAGE_FILE_B: &str = "storage_B.db";
@@ -44,7 +43,7 @@ type CommandIndex = u64;
 /// ```
 #[derive(Debug)]
 pub struct KvStore {
-    yolk: Arc<Mutex<KvStoreYolk>>,
+    yolk: Arc<RwLock<KvStoreYolk>>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -99,7 +98,7 @@ impl KvStore {
             .with_context(|| format!("Unable to open file at {:?}", path_buf.as_path()))?;
         let mem_map = Self::replay(&mut file).context("Failed when replay log.")?;
         Ok(Self {
-            yolk: Arc::new(Mutex::new(KvStoreYolk {
+            yolk: Arc::new(RwLock::new(KvStoreYolk {
                 data_dir: path_buf,
                 fp: file,
                 config_file_path,
@@ -143,7 +142,7 @@ impl KvStore {
         }
     }
 
-    fn query_command_index(&idx: &CommandIndex, fp: &mut File) -> Result<(Command, String)> {
+    fn query_command_index(&idx: &CommandIndex, fp: &File) -> Result<(Command, String)> {
         let mut buf_reader = BufReader::new(fp);
         buf_reader.seek(SeekFrom::Start(idx))?;
         let mut json = String::new();
@@ -176,7 +175,7 @@ impl KvStore {
 
     /// compaction.
     pub fn compaction(&self) -> Result<()> {
-        let mut yolk = self.yolk.lock().unwrap();
+        let mut yolk = self.yolk.write().unwrap();
         let mut pathbuf = yolk.data_dir.clone();
         let spare_file = if yolk.current_file == STORAGE_FILE_A {
             STORAGE_FILE_B
@@ -231,7 +230,7 @@ impl KvStore {
     }
 
     fn sync_config(&self) -> Result<()> {
-        let yolk = self.yolk.lock().unwrap();
+        let yolk = self.yolk.write().unwrap();
         let mut config_fp = fs::OpenOptions::new()
             .create(true)
             .write(true)
@@ -257,21 +256,19 @@ impl Drop for KvStore {
 impl KvsEngine for KvStore {
     /// Get the value by key.
     fn get(&self, key: &str) -> Result<Option<String>> {
-        let mut yolk = self.yolk.lock().unwrap();
+        //WARNING 为了实现并发读，需要通过File::Open打开多个不同的File对象，而不是try_clone
+        //回头再改.2021年7月7日
+        let mut yolk = self.yolk.write().unwrap();
         let idx = yolk.mem_map.get(key).cloned();
         if idx.is_none() {
             return Ok(None);
         }
-        let (deserialized, json) = Self::query_command_index(&idx.unwrap(), &mut yolk.fp)?;
-        if let Command::Insertion {
-            key: ikey,
-            value: ivalue,
-        } = deserialized
-        {
+        let (deserialized, json) = Self::query_command_index(&idx.unwrap(), &yolk.fp)?;
+        if let Command::Insertion { key: ikey, value } = deserialized {
             if ikey != key {
                 bail!("Mismatched command key. {}", json);
             } else {
-                Ok(Some(ivalue))
+                Ok(Some(value))
             }
         } else {
             bail!("Invalid command: {}", json)
@@ -280,7 +277,7 @@ impl KvsEngine for KvStore {
 
     /// Set the value belonging to the provided key.
     fn set(&self, key: &str, value: &str) -> Result<()> {
-        let mut yolk = self.yolk.lock().unwrap();
+        let mut yolk = self.yolk.write().unwrap();
         let idx = Self::append_command(
             &mut yolk.fp,
             &Command::Insertion {
@@ -299,7 +296,7 @@ impl KvsEngine for KvStore {
 
     /// Remove an key whether it exists or not.
     fn remove(&self, key: &str) -> Result<()> {
-        let mut yolk = self.yolk.lock().unwrap();
+        let mut yolk = self.yolk.write().unwrap();
         yolk.mem_map = Self::replay(&mut yolk.fp)?;
         match yolk.mem_map.remove(key) {
             Some(_) => {
@@ -318,7 +315,7 @@ impl KvsEngine for KvStore {
     }
 
     fn flush(&self) -> Result<()> {
-        self.yolk.lock().map_or_else(
+        self.yolk.write().map_or_else(
             |_| Err(anyhow!("Mutex poisoned.")),
             |mut o| Ok(o.fp.flush()?),
         )
