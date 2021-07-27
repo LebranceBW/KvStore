@@ -1,8 +1,10 @@
-mod kvstore;
-
 use anyhow::Result;
-
 use mockall::mock;
+
+pub use kvstore::KvStore;
+
+mod kvstore;
+pub mod sled;
 
 /// Trait which Key-Value storage engine should obey.
 pub trait KvsEngine: Clone + Send + 'static {

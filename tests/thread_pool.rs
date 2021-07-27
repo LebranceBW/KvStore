@@ -1,10 +1,10 @@
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
-
-use kvs::thread_pool::*;
-use kvs::Result;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use crossbeam_utils::sync::WaitGroup;
+
+use kvs::Result;
+use kvs::thread_pool::*;
 
 fn spawn_counter<P: ThreadPool>(pool: P) -> Result<()> {
     const TASK_NUM: usize = 20;

@@ -10,8 +10,8 @@ pub struct RayonAdapterPool {
 
 impl ThreadPool for RayonAdapterPool {
     fn new(threads: u32) -> Result<Self>
-    where
-        Self: Sized,
+        where
+            Self: Sized,
     {
         Ok(RayonAdapterPool {
             pool: ThreadPoolBuilder::new()
@@ -22,8 +22,8 @@ impl ThreadPool for RayonAdapterPool {
     }
 
     fn spawn<F>(&self, job: F)
-    where
-        F: FnOnce() + Send + 'static,
+        where
+            F: FnOnce() + Send + 'static,
     {
         self.pool.spawn(job)
     }

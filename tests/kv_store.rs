@@ -4,7 +4,8 @@ use std::thread;
 use tempfile::TempDir;
 use walkdir::WalkDir;
 
-use kvs::{KvStore, KvsEngine, Result};
+use kvs::{KvsEngine, Result};
+use kvs::engine::KvStore;
 
 // Should get previously stored value
 #[test]

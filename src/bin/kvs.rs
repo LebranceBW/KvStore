@@ -1,7 +1,10 @@
+use std::env;
+
 use anyhow::Result;
 use structopt::*;
 
-use kvs::{KvStore, KvsEngine};
+use kvs::engine::KvStore;
+use kvs::KvsEngine;
 
 #[derive(Debug, StructOpt)]
 #[structopt(name = env ! ("CARGO_PKG_NAME"), version = env ! ("CARGO_PKG_VERSION"))]
@@ -24,32 +27,22 @@ enum ArgParser {
         #[structopt(about = "The key of the value to remove.")]
         key: String,
     },
-    #[structopt(about = "List all key-value pairs.")]
-    list,
 }
 
 #[allow(unused)]
 fn main() -> Result<()> {
     let matches = ArgParser::from_args();
     match matches {
-        ArgParser::set { key, value } => KvStore::open("./")?.set(&key, &value),
+        ArgParser::set { key, value } => KvStore::open(env::current_dir().unwrap())?.set(&key, &value),
         ArgParser::get { key } => {
             let logged = key.clone();
-            let value = KvStore::open("./")?.get(&key)?;
+            let value = KvStore::open(env::current_dir().unwrap())?.get(&key)?;
             match &value {
                 Some(val) => println!("{}", val),
                 None => println!("Key: {} not found", logged),
             };
             Ok(())
         }
-        ArgParser::rm { key } => KvStore::open("./")?.remove(&key),
-        ArgParser::list => {
-            todo!()
-            // KvStore::open("./")?
-            //     .list()?
-            //     .iter()
-            //     .for_each(|(key, value)| println!("{}: {}", key, value));
-            // Ok(())
-        }
+        ArgParser::rm { key } => KvStore::open(env::current_dir().unwrap())?.remove(&key),
     }
 }

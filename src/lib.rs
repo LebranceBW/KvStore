@@ -1,4 +1,4 @@
-#![deny(missing_docs)]
+// #![deny(missing_docs)]
 //! KV store
 
 use std::fmt::{Display, Formatter};
@@ -7,17 +7,14 @@ use std::str::FromStr;
 pub use anyhow::{bail, Result};
 use serde::{Deserialize, Serialize};
 
-pub use crate::sled::SledAdapter;
 pub use client::KvClient;
 pub use engine::KvsEngine;
-pub use kvstore::KvStore;
+pub use engine::sled::SledAdapter;
 pub use server::KvServer;
 
 mod client;
-mod engine;
-mod kvstore;
 mod server;
-mod sled;
+pub mod engine;
 pub mod thread_pool;
 
 /// Backend EngineType
@@ -62,8 +59,8 @@ impl From<EngineType> for String {
             EngineType::Sled => "sled",
             EngineType::Mock => "mock",
         }
-        .parse()
-        .unwrap()
+            .parse()
+            .unwrap()
     }
 }
 

@@ -1,4 +1,4 @@
-use criterion::{black_box, criterion_group, criterion_main, Bencher, Criterion};
+use criterion::{Bencher, black_box, Criterion, criterion_group, criterion_main};
 
 mod engine {
     use criterion::{Bencher, Criterion};
@@ -8,6 +8,7 @@ mod engine {
     use tempfile::TempDir;
 
     use kvs::*;
+    use kvs::engine::KvStore;
 
     lazy_static! {
         static ref TEST_SET: Vec<(String, String)> = {
@@ -76,7 +77,7 @@ mod engine {
 
     pub fn engine_test_suite(bencher: &mut Criterion) {
         let mut group = bencher.benchmark_group("Engine tests");
-        let test_val = &TEST_SET;
+        let _test_val = &TEST_SET;
         group.bench_function("sled-write", |b| sled_write(b));
         group.bench_function("sled-read", |b| sled_read(b));
         group.bench_function("kvs-write", |b| kvs_write(b));
@@ -87,17 +88,19 @@ mod engine {
 
 mod thread_pool {
     use criterion::Criterion;
+    use tempfile::TempDir;
 
-    use kvs::thread_pool::ThreadPool;
     use kvs::{KvServer, SledAdapter};
+    use kvs::thread_pool::ThreadPool;
 
     pub fn suite_main(ct: &mut Criterion) {
-        let group = ct.benchmark_group("Write_test");
+        let _group = ct.benchmark_group("Write_test");
     }
 
     fn write_queued_kvstore<T: ThreadPool>(pool: T) {
-        let server = KvServer::new(
-            SledAdapter::open("./").unwrap(),
+        let temp_dir = TempDir::new().expect("unable to create temporary working directory");
+        let _server = KvServer::new(
+            SledAdapter::open(temp_dir.path()).unwrap(),
             pool,
             format!("127.0.0.1:8888"),
         );
