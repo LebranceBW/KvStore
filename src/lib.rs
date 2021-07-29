@@ -1,4 +1,4 @@
-// #![deny(missing_docs)]
+#![deny(missing_docs)]
 //! KV store
 
 use std::fmt::{Display, Formatter};
@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 
 pub use client::KvClient;
 pub use engine::KvsEngine;
-pub use engine::sled::SledAdapter;
+pub use engine::SledAdapter;
 pub use server::KvServer;
 
 mod client;

@@ -1,4 +1,4 @@
-use criterion::{Bencher, black_box, Criterion, criterion_group, criterion_main};
+use criterion::{criterion_group, criterion_main};
 
 mod engine {
     use criterion::{Bencher, Criterion};

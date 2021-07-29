@@ -1,10 +1,12 @@
+//! Different implement of key-value engine.
 use anyhow::Result;
 use mockall::mock;
 
 pub use kvstore::KvStore;
+pub use sled_store::SledAdapter;
 
 mod kvstore;
-pub mod sled;
+mod sled_store;
 
 /// Trait which Key-Value storage engine should obey.
 pub trait KvsEngine: Clone + Send + 'static {
@@ -20,6 +22,7 @@ pub trait KvsEngine: Clone + Send + 'static {
     }
 }
 
+/// Mocked Engine.
 pub struct MockKvsEngine;
 
 mock! {

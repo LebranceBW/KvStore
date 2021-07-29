@@ -41,9 +41,11 @@ fn cli_get_non_existent_key() {
 // `kvs rm <KEY>` should print "Key not found" for an empty database and exit with non-zero code.
 #[test]
 fn cli_rm_non_existent_key() {
+    let temp_dir = TempDir::new().unwrap();
     Command::cargo_bin("kvs")
         .unwrap()
         .args(&["rm", "key1"])
+        .current_dir(&temp_dir)
         .assert()
         .failure()
         .stderr(contains("Key: key1 not found").trim());

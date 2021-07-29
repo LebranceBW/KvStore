@@ -6,7 +6,7 @@ use std::path::PathBuf;
 use anyhow::Context;
 
 use crate::engine::kvstore::Command;
-use crate::engine::kvstore::kvstore::CommandPos;
+use crate::engine::kvstore::kvstore::CommandPosition;
 
 use super::Result;
 
@@ -51,13 +51,6 @@ impl FileReader {
         })
     }
 
-    pub fn take_over_file(file: File, id: FileID, dir: &PathBuf) -> Self {
-        Self {
-            reader: BufReader::new(file),
-            file_id: id,
-            file_path: file_path_from_id(id, dir),
-        }
-    }
     pub fn readline_at(&mut self, pos: FileOffset) -> Result<String> {
         self.reader.seek(SeekFrom::Start(pos))?;
         let mut ret = String::new();
@@ -76,7 +69,7 @@ impl FileReader {
         Ok(serde_json::from_str::<Command>(json.trim())?)
     }
 
-    pub fn command_iter(&self) -> impl Iterator<Item=(Command, CommandPos)> {
+    pub fn command_iter(&self) -> impl Iterator<Item=(Command, CommandPosition)> {
         let mut buf_reader = FileReader::clone(self).reader;
         buf_reader.seek(SeekFrom::Start(0)).unwrap();
         CommandIter {
@@ -96,7 +89,7 @@ pub struct CommandIter {
 }
 
 impl Iterator for CommandIter {
-    type Item = (Command, CommandPos);
+    type Item = (Command, CommandPosition);
 
     fn next(&mut self) -> Option<Self::Item> {
         let pos = self.reader.stream_position()
@@ -111,7 +104,7 @@ impl Iterator for CommandIter {
                             .with_context(|| format!("Failed to parse json"))
                     })
                     .ok()
-                    .map(|cmd| (cmd, CommandPos {
+                    .map(|cmd| (cmd, CommandPosition {
                         file_id: self.id,
                         pos,
                     }))
@@ -124,6 +117,7 @@ impl Iterator for CommandIter {
 pub(crate) struct FileWriter {
     pub(crate) file: File,
     pub(crate) file_id: FileID,
+    pub total_size: usize,
 }
 
 impl FileWriter {
@@ -139,20 +133,43 @@ impl FileWriter {
         Ok(Self {
             file,
             file_id: id,
+            total_size: 0
         })
     }
-    pub fn insert_command(&mut self, command: &Command) -> Result<CommandPos> {
-        let record_string = serde_json::to_string(command)
+    pub fn flush(&mut self) -> Result<()> {
+        self.file.flush()
+            .with_context(|| format!("Failed to flush the cache on disk. file_id: {}", self.file_id))
+    }
+
+    pub fn append_serialized_command(&mut self, str: &str) -> Result<CommandPosition> {
+        let pos = self.file.stream_position()?;
+        let size = self.file.write(str.as_bytes())
+            .context("Failed to write str")?;
+        self.total_size += size;
+        Ok(CommandPosition{
+            file_id: self.file_id,
+            pos
+        })
+    }
+
+    pub fn get_total_size(&self) -> usize {
+        self.total_size
+    }
+
+    pub fn append_command(&mut self, command: &Command) -> Result<CommandPosition> {
+        let mut record_string = serde_json::to_string(command)
             .with_context(|| format!("Failed to serialize Command. {:?}", command))?;
+        record_string.push('\n');
         let stream_pos = self
             .file
             .stream_position()
             .context("Failed to get stream position of new record.")?;
-        writeln!(self.file, "{}", record_string)
+        self.file.write(record_string.as_bytes())
             .with_context(|| format!("Failed to write file."))
-            .map(|_| self.file.flush()
-                .context("Failed when sync to disk."))
-            .and(Ok(CommandPos {
+            .map(|cnt| {
+                self.total_size += cnt;
+            })
+            .and(Ok(CommandPosition {
                 file_id: self.file_id,
                 pos: stream_pos,
             }))
@@ -165,15 +182,4 @@ fn file_name_from_id(file_id: FileID) -> String {
 
 fn file_path_from_id(file_id: FileID, dir: impl Into<PathBuf>) -> PathBuf {
     dir.into().join(&file_name_from_id(file_id))
-}
-
-pub(crate) fn open_new_file(dir: &PathBuf, file_id: FileID) -> Result<(File, PathBuf)> {
-    let path = file_path_from_id(file_id, dir);
-    OpenOptions::new()
-        .create(true)
-        .append(true)
-        .read(true)
-        .open(path.as_path())
-        .with_context(|| format!("Failed to open a new file: {:?}", path))
-        .map(|fp| (fp, path))
 }

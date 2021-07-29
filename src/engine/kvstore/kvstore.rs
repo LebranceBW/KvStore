@@ -1,7 +1,6 @@
 use std::collections::HashMap;
 use std::ffi::OsStr;
 use std::fs::OpenOptions;
-use std::io::{Seek, Write};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, RwLock};
 
@@ -12,7 +11,7 @@ use serde::{Deserialize, Serialize};
 
 use config::*;
 
-use crate::engine::kvstore::file_operators::{FileOffset, open_new_file};
+use crate::engine::kvstore::file_operators::FileOffset;
 use crate::KvsEngine;
 
 use super::Command;
@@ -23,16 +22,41 @@ use super::Result;
 
 // Use to locate the command
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct CommandPos {
+pub struct CommandPosition {
     pub(crate) file_id: FileID,
     pub(crate) pos: FileOffset,
 }
 
+/// KvStorage implement by my self.
+/// Example usage:
+/// ```rust
+/// # extern crate tempfile;
+/// # extern crate anyhow;
+/// # extern crate kvs;
+/// # use kvs::engine::{KvsEngine, KvStore};
+/// # use tempfile::TempDir;
+/// # use anyhow::Result;
+/// # fn main() -> Result<()>{
+///   let temp_dir = TempDir::new().expect("unable to create temporary working directory");
+///   let mut store = KvStore::open(temp_dir.path())?;
+///
+///   store.set("key1", "value1")?;
+///   store.set("key2", "value2")?;
+///
+///   assert_eq!(store.get("key1")?, Some("value1").map(str::to_string));
+///   assert_eq!(store.get("key2")?, Some("value2").map(str::to_string));
+///
+///   store.remove("key1")?;
+///   assert_eq!(store.get("key1").unwrap(), None);
+///   Ok(())
+/// # }
+/// ```
 pub struct KvStore {
     inner: Arc<RwLock<KvStoreInner>>,
 }
 
 impl KvStore {
+    /// Open a new instance in `dir`
     pub fn open(dir: impl Into<PathBuf>) -> Result<Self> {
         let inner = KvStoreInner::open(dir)?;
         Ok(Self {
@@ -42,12 +66,13 @@ impl KvStore {
 }
 
 struct KvStoreInner {
-    idx_map: HashMap<String, CommandPos>,
+    idx_map: HashMap<String, CommandPosition>,
     readers: HashMap<FileID, FileReader>,
     writer: FileWriter,
-    num_uncompacted: usize,
-    current_file_id: usize,
+    uncompacted_num: usize,
+    id_generator: CycleCounter,
     current_dir: PathBuf,
+    compaction_threshold: usize,
 }
 
 impl KvStoreInner {
@@ -56,6 +81,7 @@ impl KvStoreInner {
         let dump_file = dir_path.join(DUMP_FILE_NAME);
         // recover from existing file
         let PersistentStruct {
+            compaction_threshold,
             frozen_idx_map: mut idx_map,
             uncompacted_size: mut uncompacted,
         } = PersistentStruct::restore_from_file(dump_file.as_path())?;
@@ -78,9 +104,11 @@ impl KvStoreInner {
             idx_map,
             readers,
             writer,
-            num_uncompacted: uncompacted,
-            current_file_id: unmerged_file_id + 1,
+            uncompacted_num: uncompacted,
             current_dir: dir_path,
+            id_generator: CycleCounter::new(unmerged_file_id,
+                                            MAX_FILE_ID),
+            compaction_threshold,
         })
     }
     pub fn create_new(dir: impl Into<PathBuf>) -> Result<Self> {
@@ -96,17 +124,19 @@ impl KvStoreInner {
                 .expect(&format!("Failed to open file for reading: {}", 0)),
         );
         let dump_file = dir_path.join(DUMP_FILE_NAME);
-        PersistentStruct::dump_to_file(&PersistentStruct {
+        PersistentStruct::dump_to_file(PersistentStruct {
             frozen_idx_map: Default::default(),
             uncompacted_size: 0,
+            compaction_threshold: 64,
         }, &dump_file)?;
         Ok(Self {
             idx_map: Default::default(),
             readers,
             writer,
-            current_file_id: 1,
+            id_generator: CycleCounter::new(1, MAX_FILE_ID),
             current_dir: dir_path,
-            num_uncompacted: 0,
+            uncompacted_num: 0,
+            compaction_threshold: 64,
         })
     }
     pub fn open(dir: impl Into<PathBuf>) -> Result<Self> {
@@ -120,8 +150,9 @@ impl KvStoreInner {
         }
     }
 
+    #[allow(unused)]
     pub fn uncompacted_record_num(&self) -> usize {
-        self.num_uncompacted
+        self.uncompacted_num
     }
 
     pub fn get(&self, key: &str) -> Result<Option<String>> {
@@ -163,60 +194,64 @@ impl KvStoreInner {
     }
 
     fn compaction(&mut self) -> Result<()> {
-        info!("Uncompacted records reaches {}, compaction triggered.", self.num_uncompacted);
-        let (mut file, _) = open_new_file(&self.current_dir, self.current_file_id)?;
-        let mut file_id = self.current_file_id;
-        let mut size_cnt = 0usize;
+        info!("Uncompacted records reaches {}, compaction triggered.", self.uncompacted_num);
         let (mut new_idx_map, mut new_reader_map) = (HashMap::new(), HashMap::new());
+        let (mut file_id, _size_cnt) = (self.id_generator.next().unwrap(), 0usize);
+        let mut writer = FileWriter::open(&self.current_dir, file_id)?;
         for (key, cmd_pos) in self.idx_map.drain() {
             let command_str = self
                 .readers
                 .get_mut(&cmd_pos.file_id)
-                .ok_or(anyhow!("Failed to find file."))
+                .ok_or(anyhow!("Failed to find file, id:{}.", cmd_pos.file_id))
                 .and_then(|entry| entry.readline_at(cmd_pos.pos))?;
-            let pos = file.stream_position()?;
-            write!(&file, "{}", command_str)?;
-            new_idx_map.insert(key, CommandPos { file_id, pos });
-            size_cnt += command_str.len();
-            if size_cnt > MAX_FILE_SIZE {
+            let pos = writer.append_serialized_command(
+                &command_str
+            )?;
+            new_idx_map.insert(key, pos);
+            if writer.get_total_size() > MAX_FILE_SIZE {
                 new_reader_map.insert(
                     file_id,
-                    FileReader::take_over_file(
-                        file,
-                        file_id,
+                    FileReader::open(
                         &self.current_dir,
-                    ),
+                        file_id,
+                    )?,
                 );
-                let temp = open_new_file(&self.current_dir, self.current_file_id)?;
-                file = temp.0;
-                file_id = self.current_file_id;
-                self.current_file_id = (self.current_file_id + 1) % MAX_FILE_ID;
+                file_id = self.id_generator.next().unwrap();
+                writer = FileWriter::open(
+                    &self.current_dir,
+                    file_id,
+                )?;
             }
         }
-        let (file_read, _) = open_new_file(&self.current_dir, self.current_file_id)?;
-        new_reader_map.insert(file_id, FileReader::take_over_file(
-            file_read,
-            file_id,
-            &self.current_dir,
-        ));
-        self.writer = FileWriter {
-            file,
-            file_id: self.current_file_id,
-        };
-        self.current_file_id += 1;
-        self.num_uncompacted = 0;
+        new_reader_map.insert(file_id,
+                              FileReader::open(
+                                  &self.current_dir,
+                                  file_id,
+                              )?);
+        self.writer = writer;
+        self.uncompacted_num = 0;
+        self.compaction_threshold *= 2;
         std::mem::swap(&mut new_idx_map, &mut self.idx_map);
         std::mem::swap(&mut new_reader_map, &mut self.readers);
+        let dump_file = self.current_dir.join(DUMP_FILE_NAME);
+        PersistentStruct {
+            compaction_threshold: self.compaction_threshold,
+            frozen_idx_map: self.idx_map.clone(),
+            uncompacted_size: self.uncompacted_num,
+        }.dump_to_file(
+            &dump_file
+        )?;
         // remove compacted files
         for (_, file) in new_reader_map.into_iter() {
             file.remove_file()?;
         }
+        self.writer.flush()?;
         //generate hint file
         Ok(())
     }
 
-    fn replay(mut idx_map: HashMap<String, CommandPos>, reader: &FileReader, uncompacted_items: &mut usize)
-              -> HashMap<String, CommandPos> {
+    fn replay(mut idx_map: HashMap<String, CommandPosition>, reader: &FileReader, uncompacted_items: &mut usize)
+              -> HashMap<String, CommandPosition> {
         for (command, command_pos) in reader.command_iter() {
             trace!("Replaying: Command:{:?} at {:?}", command, command_pos);
             match command {
@@ -234,8 +269,9 @@ impl KvStoreInner {
         idx_map
     }
 
+    #[inline]
     fn need_compaction(&self) -> bool {
-        self.num_uncompacted > UNCOMPACTED_THRESHOLD
+        self.uncompacted_num > self.compaction_threshold
     }
 
     fn set(&mut self, key: &str, value: &str) -> Result<()> {
@@ -243,15 +279,31 @@ impl KvStoreInner {
             key: key.to_string(),
             value: value.to_string(),
         };
-        let writer = &mut self.writer;
-        writer
-            .insert_command(&command)
-            .map(|pos| self.idx_map.insert(key.to_string(), pos))
-            .map(|op| {
-                if op.is_some() {
-                    self.num_uncompacted += 1;
-                }
-            })?;
+        {
+            let writer = &mut self.writer;
+            writer
+                .append_command(&command)
+                .map(|pos| self.idx_map.insert(key.to_string(), pos))
+                .map(|op| {
+                    if op.is_some() {
+                        self.uncompacted_num += 1;
+                    }
+                })?;
+        };
+        let total_size = self.writer.get_total_size();
+        if total_size > MAX_FILE_SIZE {
+            let next_id =
+                self.id_generator.next().unwrap();
+            self.writer = FileWriter::open(
+                &self.current_dir,
+                next_id,
+            )?;
+            self.readers.insert(
+                next_id,
+                FileReader::open(&self.current_dir,
+                                 next_id)?,
+            );
+        }
         if self.need_compaction() {
             self.compaction()?;
         }
@@ -264,7 +316,7 @@ impl KvStoreInner {
                 key: key.to_string(),
             };
             let writer = &mut self.writer;
-            match writer.insert_command(&command)
+            match writer.append_command(&command)
             {
                 Ok(_) => {
                     self.idx_map.remove(key);
@@ -316,22 +368,46 @@ impl KvsEngine for KvStore {
     }
 }
 
+struct CycleCounter {
+    count: usize,
+    maximum: usize,
+}
+
+impl CycleCounter {
+    pub fn new(count: usize, maxinum: usize) -> Self {
+        Self {
+            count,
+            maximum: maxinum,
+        }
+    }
+}
+
+impl Iterator for CycleCounter {
+    type Item = usize;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let cnt = self.count;
+        self.count =  (self.count + 1) % self.maximum;
+        Some(cnt)
+    }
+}
+
 mod config {
     pub const DUMP_FILE_NAME: &'static str = ".dumpfile";
     pub const MAX_FILE_ID: usize = 1 << 16;
-    pub const MAX_FILE_SIZE: usize = 1 << 20;
-    pub const UNCOMPACTED_THRESHOLD: usize = 1024;
+    pub const MAX_FILE_SIZE: usize = 100 * 1 << 20;
 }
 
 /// 辅助保存KvStore当前状态的结构体
 #[derive(Deserialize, Serialize)]
 struct PersistentStruct {
-    pub frozen_idx_map: HashMap<String, CommandPos>,
+    pub compaction_threshold: usize,
+    pub frozen_idx_map: HashMap<String, CommandPosition>,
     pub uncompacted_size: usize,
 }
 
 impl PersistentStruct {
-    pub fn dump_to_file(&self, file_path: &Path) -> Result<()> {
+    pub fn dump_to_file(self, file_path: &Path) -> Result<()> {
         let fp = OpenOptions::new()
             .truncate(true)
             .write(true)
@@ -352,10 +428,9 @@ impl PersistentStruct {
 }
 
 #[cfg(test)]
-mod tests {
+mod test {
     use rand::distributions::Alphanumeric;
     use rand::Rng;
-    use simple_logger::SimpleLogger;
     use tempfile::TempDir;
     use walkdir::WalkDir;
 
@@ -363,9 +438,6 @@ mod tests {
 
     #[test]
     fn basic_usage() -> Result<()> {
-        SimpleLogger::new()
-            .with_level(LevelFilter::Trace)
-            .init();
         let temp_dir = TempDir::new().expect("unable to create temporary working directory");
         let mut store = KvStoreInner::open(temp_dir.path())?;
 
@@ -386,9 +458,6 @@ mod tests {
 
     #[test]
     fn overwrite_value() -> Result<()> {
-        SimpleLogger::new()
-            .with_level(LevelFilter::Trace)
-            .init();
         let temp_dir = TempDir::new().expect("unable to create temporary working directory");
         let mut store = KvStoreInner::open(temp_dir.path())?;
 
@@ -412,9 +481,6 @@ mod tests {
 
     #[test]
     fn get_non_existent_value() -> Result<()> {
-        SimpleLogger::new()
-            .with_level(LevelFilter::Trace)
-            .init();
         let temp_dir = TempDir::new().expect("unable to create temporary working directory");
         let mut store = KvStoreInner::open(temp_dir.path())?;
 
@@ -431,9 +497,6 @@ mod tests {
 
     #[test]
     fn remove_non_existent_key() -> Result<()> {
-        SimpleLogger::new()
-            .with_level(LevelFilter::Trace)
-            .init();
         let temp_dir = TempDir::new().expect("unable to create temporary working directory");
         let mut store = KvStoreInner::open(temp_dir.path())?;
         assert!(store.remove("key1").is_err());
@@ -442,9 +505,6 @@ mod tests {
 
     #[test]
     fn remove_key() -> Result<()> {
-        SimpleLogger::new()
-            .with_level(LevelFilter::Trace)
-            .init();
         let temp_dir = TempDir::new().expect("unable to create temporary working directory");
         let mut store = KvStoreInner::open(temp_dir.path())?;
         store.set("key1", "value1")?;
@@ -457,10 +517,6 @@ mod tests {
 // Test data correctness after compaction.
     #[test]
     fn compaction() -> Result<()> {
-        SimpleLogger::new()
-            .with_level(LevelFilter::Trace)
-            .init()
-        ;
         let temp_dir = TempDir::new().expect("unable to create temporary working directory");
         let mut store = KvStoreInner::open(temp_dir.path())?;
 
@@ -504,32 +560,14 @@ mod tests {
     }
 
     #[test]
-    pub fn uncompacted_size() {
-        SimpleLogger::new()
-            .with_level(LevelFilter::Trace)
-            .init();
-        let temp_dir = TempDir::new().expect("unable to create temporary working directory");
-        let mut store = KvStoreInner::open(temp_dir.path()).unwrap();
-        for _ in 0..100 {
-            store.set("key1", "value1").unwrap();
-        }
-        assert_eq!(99, store.num_uncompacted);
-        store.remove("key1").unwrap();
-        assert_eq!(101, store.num_uncompacted);
-    }
-
-    #[test]
     pub fn huge_test() {
-        SimpleLogger::new()
-            .with_level(LevelFilter::Debug)
-            .init();
         let temp_dir = TempDir::new().expect("unable to create temporary working directory");
         let mut store = KvStoreInner::open(temp_dir.path()).unwrap();
         for i in 0..9000 {
             store.set(&format!("key{}", i), &format!("key{}", i)).unwrap();
         }
         drop(store);
-        let mut store = KvStoreInner::open(temp_dir.path()).unwrap();
+        let store = KvStoreInner::open(temp_dir.path()).unwrap();
 
         for i in (0..9000).rev() {
             assert_eq!(store.get(&format!("key{}", i)).unwrap(), Some(format!("key{}", i)))
@@ -537,13 +575,10 @@ mod tests {
     }
 
     #[test]
-    pub fn huge_value_test() {
-        SimpleLogger::new()
-            .with_level(LevelFilter::Debug)
-            .init();
+    pub fn stress_test() {
         let test_set: Vec<(String, String)> = {
             let mut rng = rand::thread_rng();
-            (0..100)
+            (1..30)
                 .map(move |_| {
                     let key = random_string(rng.gen_range(1..100000));
                     let value = random_string(rng.gen_range(1..100000));
@@ -552,10 +587,16 @@ mod tests {
                 .collect::<Vec<_>>()
         };
         let temp_dir = TempDir::new().expect("unable to create temporary working directory");
+        println!("{:?}", temp_dir.path());
         let mut store = KvStoreInner::open(temp_dir.path()).unwrap();
-        let len = 10000;
+        let len = 100;
+        for _ in 0..len {
+            for (key, value) in test_set.iter() {
+                store.set(key, value).unwrap();
+            }
+        }
         for (key, value) in test_set.iter() {
-            store.set(key, value).unwrap();
+            assert_eq!(store.get(key).unwrap().unwrap(), *value);
         }
     }
 
