@@ -141,6 +141,10 @@ impl FileWriter {
             file_id: id,
         })
     }
+    pub fn flush(&mut self) -> Result<()> {
+        self.file.flush()
+            .with_context(|| format!("Failed to flush the cache on disk. file_id: {}", self.file_id))
+    }
     pub fn insert_command(&mut self, command: &Command) -> Result<CommandPos> {
         let record_string = serde_json::to_string(command)
             .with_context(|| format!("Failed to serialize Command. {:?}", command))?;

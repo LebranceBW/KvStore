@@ -28,11 +28,36 @@ pub struct CommandPos {
     pub(crate) pos: FileOffset,
 }
 
+/// KvStorage implement by my self.
+/// Example usage:
+/// ```rust
+/// # extern crate tempfile;
+/// # extern crate anyhow;
+/// # extern crate kvs;
+/// # use kvs::engine::{KvsEngine, KvStore};
+/// # use tempfile::TempDir;
+/// # use anyhow::Result;
+/// # fn main() -> Result<()>{
+///   let temp_dir = TempDir::new().expect("unable to create temporary working directory");
+///   let mut store = KvStore::open(temp_dir.path())?;
+///
+///   store.set("key1", "value1")?;
+///   store.set("key2", "value2")?;
+///
+///   assert_eq!(store.get("key1")?, Some("value1").map(str::to_string));
+///   assert_eq!(store.get("key2")?, Some("value2").map(str::to_string));
+///
+///   store.remove("key1")?;
+///   assert_eq!(store.get("key1").unwrap(), None);
+///   Ok(())
+/// # }
+/// ```
 pub struct KvStore {
     inner: Arc<RwLock<KvStoreInner>>,
 }
 
 impl KvStore {
+    /// Open a new instance in `dir`
     pub fn open(dir: impl Into<PathBuf>) -> Result<Self> {
         let inner = KvStoreInner::open(dir)?;
         Ok(Self {
@@ -120,6 +145,7 @@ impl KvStoreInner {
         }
     }
 
+    #[allow(unused)]
     pub fn uncompacted_record_num(&self) -> usize {
         self.num_uncompacted
     }
@@ -172,7 +198,7 @@ impl KvStoreInner {
             let command_str = self
                 .readers
                 .get_mut(&cmd_pos.file_id)
-                .ok_or(anyhow!("Failed to find file."))
+                .ok_or(anyhow!("Failed to find file, id:{}.", cmd_pos.file_id))
                 .and_then(|entry| entry.readline_at(cmd_pos.pos))?;
             let pos = file.stream_position()?;
             write!(&file, "{}", command_str)?;
@@ -211,6 +237,7 @@ impl KvStoreInner {
         for (_, file) in new_reader_map.into_iter() {
             file.remove_file()?;
         }
+        self.writer.flush()?;
         //generate hint file
         Ok(())
     }

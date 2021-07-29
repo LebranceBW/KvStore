@@ -11,7 +11,7 @@ use structopt::*;
 
 use kvs::{EngineType, KvsEngine, KvServer, SledAdapter};
 use kvs::engine::KvStore;
-use kvs::thread_pool::{NaiveThreadPool, RayonThreadPool, SharedQueueThreadPool, ThreadPool};
+use kvs::thread_pool::{RayonThreadPool, ThreadPool};
 
 const ENGINE_MARK_FILE: &'static str = ".engine_mark";
 
