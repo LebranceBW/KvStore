@@ -616,7 +616,7 @@ mod tests {
             .init();
         let test_set: Vec<(String, String)> = {
             let mut rng = rand::thread_rng();
-            (0..300)
+            (0..3000)
                 .map(move |_| {
                     let key = random_string(rng.gen_range(1..100000));
                     let value = random_string(rng.gen_range(1..100000));
@@ -627,7 +627,7 @@ mod tests {
         let temp_dir = TempDir::new().expect("unable to create temporary working directory");
         println!("{:?}", temp_dir.path());
         let mut store = KvStoreInner::open(temp_dir.path()).unwrap();
-        let len = 1000;
+        let len = 10;
         for _ in 0..len {
             for (key, value) in test_set.iter() {
                 store.set(key, value).unwrap();
