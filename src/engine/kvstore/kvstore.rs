@@ -564,7 +564,7 @@ mod tests {
     }
 
     #[test]
-    pub fn huge_value_test() {
+    pub fn stress_test() {
         SimpleLogger::new()
             .with_level(LevelFilter::Debug)
             .init();
@@ -581,8 +581,10 @@ mod tests {
         let temp_dir = TempDir::new().expect("unable to create temporary working directory");
         let mut store = KvStoreInner::open(temp_dir.path()).unwrap();
         let len = 10000;
-        for (key, value) in test_set.iter() {
-            store.set(key, value).unwrap();
+        for _ in 0..1000 {
+            for (stress_key, value) in test_set.iter() {
+                store.set(key, value).unwrap();
+            }
         }
     }
 
