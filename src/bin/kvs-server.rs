@@ -9,9 +9,9 @@ use log::*;
 use simple_logger::SimpleLogger;
 use structopt::*;
 
-use kvs::{EngineType, KvsEngine, KvServer, SledAdapter};
-use kvs::engine::KvStore;
+use kvs::engine::{KvStore, SledAdapter};
 use kvs::thread_pool::{RayonThreadPool, ThreadPool};
+use kvs::{EngineType, KvServer, KvsEngine};
 
 const ENGINE_MARK_FILE: &'static str = ".engine_mark";
 

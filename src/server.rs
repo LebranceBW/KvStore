@@ -5,8 +5,8 @@ use anyhow::Result;
 use log::*;
 use serde_json;
 
-use crate::{KvsEngine, Response};
 use crate::thread_pool::ThreadPool;
+use crate::{KvsEngine, Response};
 
 use super::Instruction;
 

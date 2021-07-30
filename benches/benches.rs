@@ -7,8 +7,8 @@ mod engine {
     use rand::Rng;
     use tempfile::TempDir;
 
-    use kvs::*;
     use kvs::engine::KvStore;
+    use kvs::*;
 
     lazy_static! {
         static ref TEST_SET: Vec<(String, String)> = {
@@ -90,8 +90,8 @@ mod thread_pool {
     use criterion::Criterion;
     use tempfile::TempDir;
 
-    use kvs::{KvServer, SledAdapter};
     use kvs::thread_pool::ThreadPool;
+    use kvs::{KvServer, SledAdapter};
 
     pub fn suite_main(ct: &mut Criterion) {
         let _group = ct.benchmark_group("Write_test");

@@ -4,17 +4,16 @@
 use std::fmt::{Display, Formatter};
 use std::str::FromStr;
 
-pub use anyhow::{bail, Result};
 use serde::{Deserialize, Serialize};
 
+pub use anyhow::Result;
 pub use client::KvClient;
 pub use engine::KvsEngine;
-pub use engine::SledAdapter;
 pub use server::KvServer;
 
 mod client;
-mod server;
 pub mod engine;
+mod server;
 pub mod thread_pool;
 
 /// Backend EngineType
@@ -47,7 +46,7 @@ impl FromStr for EngineType {
             "kvs" => Ok(EngineType::Kvs),
             "sled" => Ok(EngineType::Sled),
             "mock" => Ok(EngineType::Mock),
-            _ => bail!("Invalid kernel type: {}", s),
+            _ => anyhow::bail!("Invalid kernel type: {}", s),
         }
     }
 }
@@ -59,8 +58,8 @@ impl From<EngineType> for String {
             EngineType::Sled => "sled",
             EngineType::Mock => "mock",
         }
-            .parse()
-            .unwrap()
+        .parse()
+        .unwrap()
     }
 }
 
@@ -98,85 +97,3 @@ impl From<Response> for Result<String, String> {
         }
     }
 }
-//
-// #[cfg(test)]
-// kvstore test {
-//     use std::thread;
-//
-//     use anyhow::{Context, Result};
-//     use mockall::predicate::*;
-//     use simple_logger::SimpleLogger;
-//
-//     use crate::client::CommandClient;
-//     use crate::engine::MockKvsEngine;
-//
-//     use super::Response;
-//     use super::*;
-//
-//     fn create_testee() -> Result<(CommandServer, CommandClient)> {
-//         let addr = "localhost:9999";
-//         Ok((CommandServer::bind(&addr)?, CommandClient::connect(&addr)?))
-//     }
-//
-//     #[test]
-//     fn test_network_instructions() {
-//         SimpleLogger::new().init().unwrap();
-//         let (server, mut client) = create_testee().expect("Failed when creating testee.");
-//         let _server_thread = thread::spawn(move || {
-//             server.run(|ins| {
-//                 Response::from(serde_json::to_string(&ins).context("Error when serializing."))
-//             });
-//         });
-//         let sample_data = Instruction::Rm {
-//             key: "123".to_string(),
-//         };
-//         let sample_data2 = Instruction::Get {
-//             key: "123".to_string(),
-//         };
-//         let sample_data3 = Instruction::Set {
-//             key: "123".to_string(),
-//             value: "sample".to_string(),
-//         };
-//         assert_eq!(
-//             client.send_instruction(sample_data.clone()).unwrap(),
-//             serde_json::to_string(&sample_data).unwrap()
-//         );
-//         assert_eq!(
-//             client.send_instruction(sample_data2.clone()).unwrap(),
-//             serde_json::to_string(&sample_data2).unwrap()
-//         );
-//         assert_eq!(
-//             client.send_instruction(sample_data3.clone()).unwrap(),
-//             serde_json::to_string(&sample_data3).unwrap()
-//         );
-//     }
-//
-//     #[test]
-//     fn mock_test() {
-//         let _server_thread = thread::spawn(move || {
-//             let mut mocked_engine = MockKvsEngine {};
-//             mocked_engine
-//                 .expect_get()
-//                 .with(eq("key1"))
-//                 .times(1)
-//                 .returning(|_| Ok(Some("value1".to_owned())));
-//             mocked_engine
-//                 .expect_remove()
-//                 .with(eq("key2"))
-//                 .return_once(|_| Ok(()));
-//             let server = KvServer::new(mocked_engine, "localhost:9999").unwrap();
-//             server.run()
-//         });
-//         let mut client = CommandClient::connect("localhost:9999").unwrap();
-//         let val = client
-//             .send_instruction(Instruction::Get {
-//                 key: "key1".to_string(),
-//             })
-//             .unwrap();
-//         let val2 = client.send_instruction(Instruction::Rm {
-//             key: "key2".to_string(),
-//         });
-//         assert_eq!(val, "value1".to_string());
-//         assert!(val2.is_ok());
-//     }
-// }

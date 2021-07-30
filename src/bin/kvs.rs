@@ -33,7 +33,9 @@ enum ArgParser {
 fn main() -> Result<()> {
     let matches = ArgParser::from_args();
     match matches {
-        ArgParser::set { key, value } => KvStore::open(env::current_dir().unwrap())?.set(&key, &value),
+        ArgParser::set { key, value } => {
+            KvStore::open(env::current_dir().unwrap())?.set(&key, &value)
+        }
         ArgParser::get { key } => {
             let logged = key.clone();
             let value = KvStore::open(env::current_dir().unwrap())?.get(&key)?;

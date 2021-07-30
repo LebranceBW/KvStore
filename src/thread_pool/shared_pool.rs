@@ -2,9 +2,9 @@ use std::thread;
 use std::thread::{Builder, JoinHandle};
 
 use anyhow::Result;
+use crossbeam::channel::unbounded;
 use crossbeam::channel::Receiver;
 use crossbeam::channel::Sender;
-use crossbeam::channel::unbounded;
 use log::error;
 use log::warn;
 
@@ -68,8 +68,8 @@ fn thread_main_loop(guard: WorkerGuard) {
 
 impl ThreadPool for SharedQueueThreadPool {
     fn new(threads: u32) -> Result<Self>
-        where
-            Self: Sized,
+    where
+        Self: Sized,
     {
         let (tx, rx) = unbounded();
         let thread_handler: Vec<_> = (0..threads)
@@ -88,8 +88,8 @@ impl ThreadPool for SharedQueueThreadPool {
     }
 
     fn spawn<F>(&self, job: F)
-        where
-            F: FnOnce() + Send + 'static,
+    where
+        F: FnOnce() + Send + 'static,
     {
         match self.tx.send(TaskMessage::NewTask(Box::new(job))) {
             Ok(_) => (),

@@ -6,8 +6,8 @@ use predicates::str::{contains, is_empty, PredicateStrExt};
 use tempfile::TempDir;
 use walkdir::WalkDir;
 
-use kvs::{KvsEngine, Result};
 use kvs::engine::KvStore;
+use kvs::{KvsEngine, Result};
 
 // `kvs` with no args should exit with a non-zero code.
 #[test]

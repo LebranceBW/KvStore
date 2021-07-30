@@ -13,8 +13,8 @@ impl ThreadPool for NaiveThreadPool {
     }
 
     fn spawn<F>(&self, job: F)
-        where
-            F: FnOnce() + Send + 'static,
+    where
+        F: FnOnce() + Send + 'static,
     {
         thread::spawn(job);
     }

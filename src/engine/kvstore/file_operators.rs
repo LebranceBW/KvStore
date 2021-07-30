@@ -1,12 +1,12 @@
 use std::fs::{File, OpenOptions};
-use std::io::{BufRead, BufReader, Seek, SeekFrom};
 use std::io::Write;
+use std::io::{BufRead, BufReader, Seek, SeekFrom};
 use std::path::PathBuf;
 
 use anyhow::Context;
 
-use crate::engine::kvstore::Command;
 use crate::engine::kvstore::kvstore::CommandPosition;
+use crate::engine::kvstore::Command;
 
 use super::Result;
 
@@ -69,7 +69,7 @@ impl FileReader {
         Ok(serde_json::from_str::<Command>(json.trim())?)
     }
 
-    pub fn command_iter(&self) -> impl Iterator<Item=(Command, CommandPosition)> {
+    pub fn command_iter(&self) -> impl Iterator<Item = (Command, CommandPosition)> {
         let mut buf_reader = FileReader::clone(self).reader;
         buf_reader.seek(SeekFrom::Start(0)).unwrap();
         CommandIter {
@@ -92,24 +92,27 @@ impl Iterator for CommandIter {
     type Item = (Command, CommandPosition);
 
     fn next(&mut self) -> Option<Self::Item> {
-        let pos = self.reader.stream_position()
-            .ok();
-        pos.and_then(|pos|
-            {
-                let mut buf = String::new();
-                self.reader.read_line(&mut buf)
-                    .context("")
-                    .and_then(|_| {
-                        serde_json::from_str::<Command>(&buf)
-                            .with_context(|| format!("Failed to parse json"))
-                    })
-                    .ok()
-                    .map(|cmd| (cmd, CommandPosition {
-                        file_id: self.id,
-                        pos,
-                    }))
-            }
-        )
+        let pos = self.reader.stream_position().ok();
+        pos.and_then(|pos| {
+            let mut buf = String::new();
+            self.reader
+                .read_line(&mut buf)
+                .context("")
+                .and_then(|_| {
+                    serde_json::from_str::<Command>(&buf)
+                        .with_context(|| format!("Failed to parse json"))
+                })
+                .ok()
+                .map(|cmd| {
+                    (
+                        cmd,
+                        CommandPosition {
+                            file_id: self.id,
+                            pos,
+                        },
+                    )
+                })
+        })
     }
 }
 
@@ -127,28 +130,36 @@ impl FileWriter {
             .create(true)
             .append(true)
             .open(file_path_from_id(id, &dir_path))
-            .expect(&format!("Failed to open file {:?}", file_path_from_id(id,
-                                                                           &dir_path)));
+            .expect(&format!(
+                "Failed to open file {:?}",
+                file_path_from_id(id, &dir_path)
+            ));
         file.seek(SeekFrom::End(0))?;
         Ok(Self {
             file,
             file_id: id,
-            total_size: 0
+            total_size: 0,
         })
     }
     pub fn flush(&mut self) -> Result<()> {
-        self.file.flush()
-            .with_context(|| format!("Failed to flush the cache on disk. file_id: {}", self.file_id))
+        self.file.flush().with_context(|| {
+            format!(
+                "Failed to flush the cache on disk. file_id: {}",
+                self.file_id
+            )
+        })
     }
 
     pub fn append_serialized_command(&mut self, str: &str) -> Result<CommandPosition> {
         let pos = self.file.stream_position()?;
-        let size = self.file.write(str.as_bytes())
+        let size = self
+            .file
+            .write(str.as_bytes())
             .context("Failed to write str")?;
         self.total_size += size;
-        Ok(CommandPosition{
+        Ok(CommandPosition {
             file_id: self.file_id,
-            pos
+            pos,
         })
     }
 
@@ -164,7 +175,8 @@ impl FileWriter {
             .file
             .stream_position()
             .context("Failed to get stream position of new record.")?;
-        self.file.write(record_string.as_bytes())
+        self.file
+            .write(record_string.as_bytes())
             .with_context(|| format!("Failed to write file."))
             .map(|cnt| {
                 self.total_size += cnt;

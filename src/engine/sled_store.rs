@@ -5,8 +5,8 @@ use anyhow::Context;
 use sled::{Db, IVec};
 
 use crate::KvsEngine;
-use crate::Result;
 
+use anyhow::Result;
 #[derive(Clone)]
 /// Adapter for sled engine.
 pub struct SledAdapter {
